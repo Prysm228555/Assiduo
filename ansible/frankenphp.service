@@ -1,0 +1,16 @@
+[Unit]
+Description=FrankenPHP server for Assiduo
+After=network-online.target mysql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/frankenphp run --config /etc/frankenphp/Caddyfile
+WorkingDirectory=/var/www/assiduo
+Restart=on-failure
+User=www-data
+Group=www-data
+Environment=APP_ENV=prod
+
+[Install]
+WantedBy=multi-user.target

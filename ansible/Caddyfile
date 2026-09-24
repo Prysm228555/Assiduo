@@ -1,0 +1,9 @@
+{
+    frankenphp
+}
+
+:80 {
+    root * /var/www/assiduo/public
+    encode zstd gzip
+    php_server
+}
