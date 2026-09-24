@@ -1,0 +1,242 @@
+---
+# Commande :
+# ansible-playbook -i inventory.ini playbook.yml --ask-become-pass
+
+- name: Installation du socle Assiduo
+  hosts: vm-assiduo
+  become: true
+
+  vars_files:
+  - secrets.yml
+
+  vars:
+    php_version: "8.4"
+
+    mysql_app_db: "assiduo"
+    mysql_app_user: "app"
+
+    app_repo: "https://github.com/Prysm228555/Assiduo.git"
+    app_branch: "feature/symfony-docker"
+    app_dir: "/var/www/assiduo"
+
+    frankenphp_version: "1.5.0"
+
+    ansible_user : "selhani" # Changer le nom d'utilisateur selon votre configuration
+
+  tasks:
+
+    # Outils de base
+    - name: Installer Git et les outils nécessaires
+      apt:
+        name:
+          - git
+          - curl
+          - ca-certificates
+          - gnupg
+          - unzip
+          - python3-pymysql
+        state: present
+        update_cache: true
+
+
+    # PHP 8.4
+    - name: Créer le dossier des clés APT
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: "0755"
+
+    - name: Ajouter la clé du dépôt PHP Sury
+      get_url:
+        url: https://packages.sury.org/php/apt.gpg
+        dest: /etc/apt/trusted.gpg.d/php-sury.gpg
+        mode: "0644"
+
+    - name: Ajouter le dépôt PHP Sury
+      apt_repository:
+        repo: "deb https://packages.sury.org/php/ {{ ansible_distribution_release }} main"
+        state: present
+        filename: php-sury
+
+    - name: Installer PHP {{ php_version }}
+      apt:
+        name:
+          - "php{{ php_version }}"
+          - "php{{ php_version }}-cli"
+          - "php{{ php_version }}-mysql"
+          - "php{{ php_version }}-intl"
+          - "php{{ php_version }}-zip"
+          - "php{{ php_version }}-xml"
+          - "php{{ php_version }}-mbstring"
+          - "php{{ php_version }}-curl"
+          - "php{{ php_version }}-opcache"
+        state: present
+        update_cache: true
+
+
+    # MYSQL 8.4
+    - name: Télécharger la clé GPG MySQL
+      get_url:
+        url: https://repo.mysql.com/RPM-GPG-KEY-mysql-2025
+        dest: /etc/apt/keyrings/mysql.gpg
+        mode: "0644"
+
+    - name: Ajouter le dépôt MySQL 8.4
+      apt_repository:
+        repo: "deb [signed-by=/etc/apt/keyrings/mysql.gpg] https://repo.mysql.com/apt/debian/ {{ ansible_facts.distribution_release }} mysql-8.4-lts"
+        state: present
+        filename: mysql
+
+    - name: Installer MySQL 8.4
+      apt:
+        name: mysql-server
+        state: present
+        update_cache: true
+
+    - name: Démarrer MySQL
+      systemd:
+        name: mysql
+        state: started
+        enabled: true
+
+    - name: Créer la base de données
+      community.mysql.mysql_db:
+        name: "{{ mysql_app_db }}"
+        encoding: utf8mb4
+        state: present
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+
+    - name: Créer l'utilisateur MySQL
+      ansible.builtin.shell:
+        cmd: >
+          mysql -e
+          "CREATE USER IF NOT EXISTS '{{ mysql_app_user }}'@'localhost'
+          IDENTIFIED WITH caching_sha2_password BY '{{ mysql_app_password }}';"
+
+    - name: Donner les droits à l'utilisateur MySQL
+      ansible.builtin.shell:
+        cmd: >
+          mysql -e
+          "GRANT ALL PRIVILEGES ON {{ mysql_app_db }}.* TO
+          '{{ mysql_app_user }}'@'localhost';"
+
+
+    # FRANKENPHP
+    - name: Télécharger FrankenPHP {{ frankenphp_version }}
+      get_url:
+        url: "https://github.com/dunglas/frankenphp/releases/download/v{{ frankenphp_version }}/frankenphp-linux-x86_64"
+        dest: /usr/local/bin/frankenphp
+        mode: "0755"
+    
+    - name: Autoriser FrankenPHP à utiliser le port 80
+      community.general.capabilities:
+        path: /usr/local/bin/frankenphp
+        capability: cap_net_bind_service=+ep
+        state: present
+
+    
+    # ÉVITER UN CONFLIT SUR LE PORT 80
+    # =========================
+    - name: Arrêter Apache s'il est installé
+      ansible.builtin.systemd:
+        name: apache2
+        state: stopped
+      failed_when: false
+
+    - name: Désactiver Apache s'il est installé
+      ansible.builtin.systemd:
+        name: apache2
+        enabled: false
+      failed_when: false
+
+
+    # CONFIGURATION SYMFONY
+    - name: Créer le fichier .env.local
+      ansible.builtin.template:
+        src: env.local
+        dest: "{{ app_dir }}/.env.local"
+        owner: "{{ ansible_user }}"
+        group: www-data
+        mode: "0640"
+
+    # DOSSIERS SYMFONY
+    - name: Donner les droits à l'utilisateur Ansible sur var
+      ansible.builtin.file:
+        path: "{{ app_dir }}/var"
+        owner: "{{ ansible_user }}"
+        group: www-data
+        mode: "0775"
+        recurse: true
+
+    # COMPOSER
+    - name: Installer Composer
+      get_url:
+        url: https://getcomposer.org/installer
+        dest: /tmp/composer-setup.php
+        mode: "0644"
+
+    - name: Installer Composer
+      command:
+        cmd: php /tmp/composer-setup.php --install-dir=/usr/local/bin --filename=composer
+        creates: /usr/local/bin/composer
+
+    - name: Installer les dépendances Symfony
+      become: false
+      community.general.composer:
+        command: install
+        working_dir: "{{ app_dir }}"
+        no_dev: true
+        optimize_autoloader: true
+
+
+    # DROITS POUR FRANKENPHP
+    - name: Donner les droits à www-data sur var
+      ansible.builtin.file:
+        path: "{{ app_dir }}/var"
+        state: directory
+        recurse: true
+        owner: www-data
+        group: www-data
+
+    # FRANKENPHP SERVICE
+    - name: Créer le dossier FrankenPHP
+      file:
+        path: /etc/frankenphp
+        state: directory
+        mode: "0755"
+
+    - name: Installer le service FrankenPHP
+      copy:
+        src: frankenphp.service
+        dest: /etc/systemd/system/frankenphp.service
+        mode: "0644"
+      notify:
+        - Recharger systemd
+
+    - name: Installer le Caddyfile
+      copy:
+        src: Caddyfile
+        dest: /etc/frankenphp/Caddyfile
+        mode: "0644"
+      notify:
+        - Redémarrer FrankenPHP
+
+
+    # DÉMARRER FRANKENPHP
+    - name: Démarrer FrankenPHP
+      systemd:
+        name: frankenphp
+        state: started
+        enabled: true
+
+
+  handlers:
+
+    - name: Recharger systemd
+      systemd:
+        daemon_reload: true
+
+    - name: Redémarrer FrankenPHP
+      systemd:
+        name: frankenphp
+        state: restarted
