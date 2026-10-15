@@ -1,0 +1,125 @@
+Table "appel" {
+  "id" int [pk, not null, increment]
+  "date_appel" date [not null]
+  "horodatage_validation" date
+  "verrouille" tinyint [not null]
+  "creneau_id" int [not null]
+
+  Indexes {
+    creneau_id [type: btree, name: "IDX_130D3BD7D0729A9"]
+  }
+}
+
+Table "classe" {
+  "id" int [pk, not null, increment]
+  "nom_classe" varchar(20) [not null]
+  "niveau" varchar(20) [not null]
+}
+
+Table "creneau" {
+  "id" int [pk, not null, increment]
+  "jour_semaine" varchar(20) [not null]
+  "heure_debut" time [not null]
+  "heurefin" time [not null]
+  "utilisateur_id" int [not null]
+
+  Indexes {
+    utilisateur_id [type: btree, name: "IDX_F9668B5FFB88E14F"]
+  }
+}
+
+Table "creneau_classe" {
+  "creneau_id" int [not null]
+  "classe_id" int [not null]
+
+  Indexes {
+    creneau_id [type: btree, name: "IDX_3A42FE907D0729A9"]
+    classe_id [type: btree, name: "IDX_3A42FE908F5EA509"]
+    (creneau_id, classe_id) [pk, name: "PRIMARY"]
+  }
+}
+
+Table "doctrine_migration_versions" {
+  "version" varchar(191) [pk, not null]
+  "executed_at" datetime
+  "execution_time" int
+}
+
+Table "eleve" {
+  "id" int [pk, not null, increment]
+  "nom" varchar(255) [not null]
+  "prenom" varchar(255)
+  "date_naissance" date [not null]
+  "classe_id" int [not null]
+
+  Indexes {
+    classe_id [type: btree, name: "IDX_ECA105F78F5EA509"]
+  }
+}
+
+Table "journal_audit" {
+  "id" int [pk, not null, increment]
+  "date_heure" date [not null]
+  "action" varchar(255) [not null]
+  "autorisee" tinyint [not null]
+  "type_ressource" varchar(255) [not null]
+  "id_ressource" int
+  "utilisateur_id" int [not null]
+
+  Indexes {
+    utilisateur_id [type: btree, name: "IDX_71C3CC53FB88E14F"]
+  }
+}
+
+Table "presence" {
+  "id" int [pk, not null, increment]
+  "status" varchar(50) [not null]
+  "duree_retard" int
+  "justifie" tinyint [not null]
+  "motif" longtext
+  "date_qualification" datetime
+  "appel_id" int [not null]
+  "eleve_id" int [not null]
+
+  Indexes {
+    appel_id [type: btree, name: "IDX_6977C7A5270B0E02"]
+    eleve_id [type: btree, name: "IDX_6977C7A5A6CC7B2"]
+  }
+}
+
+Table "role" {
+  "id" int [pk, not null, increment]
+  "nom_role" varchar(20) [not null]
+}
+
+Table "utilisateur" {
+  "id" int [pk, not null, increment]
+  "email" varchar(180) [unique, not null]
+  "roles" json [not null]
+  "password" varchar(255) [not null]
+  "nom" varchar(255) [not null]
+  "prenom" varchar(255)
+  "role_id" int [not null]
+
+  Indexes {
+    role_id [type: btree, name: "IDX_1D1C63B3D60322AC"]
+  }
+}
+
+Ref "FK_130D3BD7D0729A9":"creneau"."id" <? "appel"."creneau_id"
+
+Ref "FK_F9668B5FFB88E14F":"utilisateur"."id" <? "creneau"."utilisateur_id"
+
+Ref "FK_3A42FE907D0729A9":"creneau"."id" <? "creneau_classe"."creneau_id" [delete: cascade]
+
+Ref "FK_3A42FE908F5EA509":"classe"."id" <? "creneau_classe"."classe_id" [delete: cascade]
+
+Ref "FK_ECA105F78F5EA509":"classe"."id" <? "eleve"."classe_id"
+
+Ref "FK_71C3CC53FB88E14F":"utilisateur"."id" <? "journal_audit"."utilisateur_id"
+
+Ref "FK_6977C7A5270B0E02":"appel"."id" <? "presence"."appel_id"
+
+Ref "FK_6977C7A5A6CC7B2":"eleve"."id" <? "presence"."eleve_id"
+
+Ref "FK_1D1C63B3D60322AC":"role"."id" <? "utilisateur"."role_id"
